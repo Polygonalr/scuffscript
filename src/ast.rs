@@ -90,7 +90,6 @@ pub enum Stmt {
 pub enum ASTNodeKind {
     StmtKind(Stmt),
     ExprKind(Expr),
-    FDeclKind(FDecl),
     TermKind(Term),
     Empty,
 }
@@ -104,10 +103,6 @@ pub struct ASTNode {
 impl ASTNode {
     pub fn new(index: NodeIdx, kind: ASTNodeKind) -> ASTNode {
         ASTNode { index, kind }
-    }
-
-    pub fn update(&mut self, kind: ASTNodeKind) {
-        self.kind = kind;
     }
 }
 
@@ -163,13 +158,13 @@ impl ASTStore for Vec<ASTNode> {
     fn term_to_string(&self, term: &Term) -> String {
         match term {
             Term::Int(i) => {
-                format!("{}", i)
+                i.to_string()
             },
             Term::Double(d) => {
-                format!("{}", d)
+                d.to_string()
             },
             Term::Var(vid) => {
-                format!("{}", vid)
+                vid.to_string()
             }
         }
     }

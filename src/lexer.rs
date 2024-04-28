@@ -64,17 +64,11 @@ impl From<f64> for Token {
 
 impl Token {
     pub fn is_type(&self) -> bool {
-        match self {
-            Token::IntT | Token::DoubleT | Token::StringT => true,
-            _ => false,
-        }
+        matches!(self, Token::IntT | Token::DoubleT | Token::StringT)
     }
 
     pub fn is_term(&self) -> bool {
-        match self {
-            Token::Identifier(_) | Token::Integer(_) | Token::Double(_) => true,
-            _ => false,
-        }
+        matches!(self, Token::Identifier(_) | Token::Integer(_) | Token::Double(_))
     }
 }
 
