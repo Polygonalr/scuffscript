@@ -8,9 +8,13 @@ pub enum Token {
     Let,
     Return,
     Print,
+    // Types
+    IntT,
+    DoubleT,
+    StringT,
 
     // Numbers
-    Integer(i32),
+    Integer(i64),
     Double(f64),
 
     // Strings
@@ -29,6 +33,14 @@ pub enum Token {
     RCurly,
     Dot,
     Semicolon,
+    Colon,
+    Comma,
+    Equal,
+    EqualEqual,
+    Ampersand,
+    AmpersandAmpersand,
+    Bar,
+    BarBar,
     Eof,
 }
 
@@ -38,8 +50,8 @@ impl From<String> for Token {
     }
 }
 
-impl From<i32> for Token {
-    fn from(other: i32) -> Token {
+impl From<i64> for Token {
+    fn from(other: i64) -> Token {
         Token::Integer(other)
     }
 }
@@ -47,6 +59,22 @@ impl From<i32> for Token {
 impl From<f64> for Token {
     fn from(other: f64) -> Token {
         Token::Double(other)
+    }
+}
+
+impl Token {
+    pub fn is_type(&self) -> bool {
+        match self {
+            Token::IntT | Token::DoubleT | Token::StringT => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_term(&self) -> bool {
+        match self {
+            Token::Identifier(_) | Token::Integer(_) | Token::Double(_) => true,
+            _ => false,
+        }
     }
 }
 
@@ -96,7 +124,7 @@ impl<'a> Tokenizer<'a> {
         if has_period {
             return Ok(Token::from(s.parse::<f64>().unwrap()));
         }
-        Ok(Token::from(s.parse::<i32>().unwrap()))
+        Ok(Token::from(s.parse::<i64>().unwrap()))
     }
 
     fn tokenize_word(&mut self) -> Result<Token, String> {
@@ -106,6 +134,9 @@ impl<'a> Tokenizer<'a> {
             "let" => Ok(Token::Let),
             "return" => Ok(Token::Return),
             "print" => Ok(Token::Print),
+            "int" => Ok(Token::IntT),
+            "double" => Ok(Token::DoubleT),
+            "string" => Ok(Token::StringT),
             "" => Err("Empty string".to_string()),
             _ => Ok(Token::from(word.to_string())),
         }
@@ -138,6 +169,32 @@ impl<'a> Tokenizer<'a> {
             '}' => Ok(Token::RCurly),
             '.' => Ok(Token::Dot),
             ';' => Ok(Token::Semicolon),
+            ':' => Ok(Token::Colon),
+            ',' => Ok(Token::Comma),
+            '=' => {
+                if let Some(&'=') = self.it.peek() {
+                    self.it.next();
+                    Ok(Token::EqualEqual)
+                } else {
+                    Ok(Token::Equal)
+                }
+            },
+            '&' => {
+                if let Some(&'&') = self.it.peek() {
+                    self.it.next();
+                    Ok(Token::AmpersandAmpersand)
+                } else {
+                    Ok(Token::Ampersand)
+                }
+            },
+            '|' => {
+                if let Some(&'|') = self.it.peek() {
+                    self.it.next();
+                    Ok(Token::BarBar)
+                } else {
+                    Ok(Token::Bar)
+                }
+            },
             _ => Err(format!("Unexpected character: {}", c).to_string()),
         }
     }
@@ -171,6 +228,7 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, String> {
             break;
         }
     }
+    tokens.push(Token::Eof);
     Ok(tokens)
 }
 
@@ -179,28 +237,34 @@ mod tests {
     #[test]
     fn lexer_tests() {
         use crate::lexer::{tokenize, Token};
-        assert_eq!(tokenize("123"), Ok(vec![Token::Integer(123)]));
+        assert_eq!(tokenize("123"), Ok(vec![Token::Integer(123), Token::Eof]));
         assert_eq!(
-            tokenize("function main {}"),
+            tokenize("function main: int {}"),
             Ok(vec![
                 Token::Function,
                 Token::Identifier("main".to_string()),
+                Token::Colon,
+                Token::IntT,
                 Token::LCurly,
-                Token::RCurly
+                Token::RCurly,
+                Token::Eof
             ])
         );
         assert_eq!(
-            tokenize("function main {\n    print(\"Hello world!\");\n}"),
+            tokenize("function main: int {\n    print(\"Hello world!\");\n}"),
             Ok(vec![
                 Token::Function,
                 Token::Identifier("main".to_string()),
+                Token::Colon,
+                Token::IntT,
                 Token::LCurly,
                 Token::Print,
                 Token::LParen,
                 Token::QuotedString("Hello world!".to_string()),
                 Token::RParen,
                 Token::Semicolon,
-                Token::RCurly
+                Token::RCurly,
+                Token::Eof,
             ])
         );
     }
