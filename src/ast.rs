@@ -1,4 +1,4 @@
-use crate::lexer::Token;
+use crate::lexer::{SourceLocation, TokenData};
 
 pub type GlobalId = String;
 pub type VarId = String;
@@ -19,14 +19,14 @@ pub enum Binop {
     Or,
 }
 
-impl From<Token> for Binop {
-    fn from(token: Token) -> Binop {
+impl From<TokenData> for Binop {
+    fn from(token: TokenData) -> Binop {
         match token {
-            Token::Plus => Binop::Add,
-            Token::Minus => Binop::Sub,
-            Token::Times => Binop::Mul,
-            Token::Ampersand => Binop::And,
-            Token::Bar => Binop::Or,
+            TokenData::Plus => Binop::Add,
+            TokenData::Minus => Binop::Sub,
+            TokenData::Times => Binop::Mul,
+            TokenData::Ampersand => Binop::And,
+            TokenData::Bar => Binop::Or,
             _ => panic!("Invalid token to Binop conversion")
         }
     }
@@ -94,15 +94,16 @@ pub enum ASTNodeKind {
     Empty,
 }
 
-#[derive(Clone, Debug, PartialEq, PartialOrd)]
+#[derive(Clone, Debug)]
 pub struct ASTNode {
     pub index: NodeIdx,
     pub kind: ASTNodeKind,
+    pub loc: SourceLocation,
 }
 
 impl ASTNode {
-    pub fn new(index: NodeIdx, kind: ASTNodeKind) -> ASTNode {
-        ASTNode { index, kind }
+    pub fn new(index: NodeIdx, kind: ASTNodeKind, loc: SourceLocation) -> ASTNode {
+        ASTNode { index, kind, loc }
     }
 }
 

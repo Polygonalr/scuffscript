@@ -1,7 +1,20 @@
-use std::iter::Peekable;
+use std::{iter::Peekable, rc::Rc};
+
+#[derive(Debug, Clone)]
+pub struct SourceLocation {
+    pub source_path: Rc<str>,
+    pub line: usize,
+    pub col: usize,
+}
+
+impl ToString for SourceLocation {
+    fn to_string(&self) -> String {
+        format!("{}:{}:{}", self.source_path, self.line, self.col)
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Token {
+pub enum TokenData {
     // Words & Keywords
     Identifier(String),
     Function,
@@ -44,42 +57,93 @@ pub enum Token {
     Eof,
 }
 
-impl From<String> for Token {
-    fn from(other: String) -> Token {
-        Token::Identifier(other)
+impl From<String> for TokenData {
+    fn from(other: String) -> TokenData {
+        TokenData::Identifier(other)
     }
 }
 
-impl From<i64> for Token {
-    fn from(other: i64) -> Token {
-        Token::Integer(other)
+impl From<i64> for TokenData {
+    fn from(other: i64) -> TokenData {
+        TokenData::Integer(other)
     }
 }
 
-impl From<f64> for Token {
-    fn from(other: f64) -> Token {
-        Token::Double(other)
+impl From<f64> for TokenData {
+    fn from(other: f64) -> TokenData {
+        TokenData::Double(other)
     }
 }
 
-impl Token {
+impl TokenData {
     pub fn is_type(&self) -> bool {
-        matches!(self, Token::IntT | Token::DoubleT | Token::StringT)
+        matches!(
+            self,
+            TokenData::IntT | TokenData::DoubleT | TokenData::StringT
+        )
     }
 
     pub fn is_term(&self) -> bool {
-        matches!(self, Token::Identifier(_) | Token::Integer(_) | Token::Double(_))
+        matches!(
+            self,
+            TokenData::Identifier(_) | TokenData::Integer(_) | TokenData::Double(_)
+        )
     }
+}
+
+#[derive(Debug)]
+pub struct Token {
+    pub data: TokenData,
+    pub loc: SourceLocation,
 }
 
 struct Tokenizer<'a> {
     it: Peekable<std::str::Chars<'a>>,
+    /// Path to the source file of the code
+    source_path: Rc<str>,
+    next_char_line: usize,
+    next_char_col: usize,
+    cache_line: usize,
+    cache_col: usize,
 }
 
 impl<'a> Tokenizer<'a> {
     fn new(src: &str) -> Tokenizer {
         Tokenizer {
             it: src.chars().peekable(),
+            source_path: Rc::from("test"),
+            next_char_line: 1,
+            next_char_col: 1,
+            cache_line: 0,
+            cache_col: 0,
+        }
+    }
+
+    fn next(&mut self) -> Option<char> {
+        if let Some('\n') = self.it.peek() {
+            self.next_char_line += 1;
+            self.next_char_col = 1;
+        } else {
+            self.next_char_col += 1;
+        }
+        self.it.next()
+    }
+
+    /// Caches the next character's location. To be called at the start of
+    /// any tokenization.
+    fn cache_loc(&mut self) {
+        self.cache_line = self.next_char_line;
+        self.cache_col = self.next_char_col;
+    }
+
+    fn create_token(&self, token_data: TokenData) -> Token {
+        Token {
+            data: token_data,
+            loc: SourceLocation {
+                source_path: self.source_path.clone(),
+                line: self.cache_line,
+                col: self.cache_col,
+            },
         }
     }
 
@@ -87,7 +151,7 @@ impl<'a> Tokenizer<'a> {
         let mut s = "".to_string();
         while let Some(c) = self.it.peek() {
             if pred(*c) {
-                match self.it.next() {
+                match self.next() {
                     Some(ch) => s.push(ch),
                     None => return s,
                 }
@@ -98,7 +162,8 @@ impl<'a> Tokenizer<'a> {
         s
     }
 
-    fn tokenize_numeric(&mut self) -> Result<Token, String> {
+    fn tokenize_numeric(&mut self) -> Result<TokenData, String> {
+        self.cache_loc();
         // TODO ensure that character following the numeral is not alpha
         let numerals = self.consume_while(|x| x.is_numeric() || x == '.');
         let mut has_period = false;
@@ -116,98 +181,102 @@ impl<'a> Tokenizer<'a> {
             }
         }
         if has_period {
-            return Ok(Token::from(s.parse::<f64>().unwrap()));
+            return Ok(TokenData::from(s.parse::<f64>().unwrap()));
         }
-        Ok(Token::from(s.parse::<i64>().unwrap()))
+        Ok(TokenData::from(s.parse::<i64>().unwrap()))
     }
 
-    fn tokenize_word(&mut self) -> Result<Token, String> {
+    fn tokenize_word(&mut self) -> Result<TokenData, String> {
+        self.cache_loc();
         let word = self.consume_while(|x| x.is_alphanumeric());
         match word.as_str() {
-            "function" => Ok(Token::Function),
-            "let" => Ok(Token::Let),
-            "return" => Ok(Token::Return),
-            "print" => Ok(Token::Print),
-            "int" => Ok(Token::IntT),
-            "double" => Ok(Token::DoubleT),
-            "string" => Ok(Token::StringT),
+            "function" => Ok(TokenData::Function),
+            "let" => Ok(TokenData::Let),
+            "return" => Ok(TokenData::Return),
+            "print" => Ok(TokenData::Print),
+            "int" => Ok(TokenData::IntT),
+            "double" => Ok(TokenData::DoubleT),
+            "string" => Ok(TokenData::StringT),
             "" => Err("Empty string".to_string()),
-            _ => Ok(Token::from(word.to_string())),
+            _ => Ok(TokenData::from(word.to_string())),
         }
     }
 
-    fn tokenize_string(&mut self) -> Result<Token, String> {
+    fn tokenize_string(&mut self) -> Result<TokenData, String> {
+        // TODO deal with unexpected new lines between two quotes
         // consume first quote
-        self.it.next();
+        self.next();
         let string_data = self.consume_while(|x| x != '"');
         let next_char = self.it.peek();
         if next_char.is_none() {
             return Err("No matching quotation marks for string value".to_string());
         }
-        self.it.next();
-        Ok(Token::QuotedString(string_data.to_string()))
+        self.next();
+        Ok(TokenData::QuotedString(string_data.to_string()))
     }
 
-    fn tokenize_single(&mut self) -> Result<Token, String> {
-        let c = self.it.next().unwrap();
+    fn tokenize_single(&mut self) -> Result<TokenData, String> {
+        let c = self.next().unwrap();
         match c {
-            '+' => Ok(Token::Plus),
-            '-' => Ok(Token::Minus),
-            '*' => Ok(Token::Times),
-            '/' => Ok(Token::Divide),
-            '(' => Ok(Token::LParen),
-            ')' => Ok(Token::RParen),
-            '[' => Ok(Token::LBracket),
-            ']' => Ok(Token::RBracket),
-            '{' => Ok(Token::LCurly),
-            '}' => Ok(Token::RCurly),
-            '.' => Ok(Token::Dot),
-            ';' => Ok(Token::Semicolon),
-            ':' => Ok(Token::Colon),
-            ',' => Ok(Token::Comma),
+            '+' => Ok(TokenData::Plus),
+            '-' => Ok(TokenData::Minus),
+            '*' => Ok(TokenData::Times),
+            '/' => Ok(TokenData::Divide),
+            '(' => Ok(TokenData::LParen),
+            ')' => Ok(TokenData::RParen),
+            '[' => Ok(TokenData::LBracket),
+            ']' => Ok(TokenData::RBracket),
+            '{' => Ok(TokenData::LCurly),
+            '}' => Ok(TokenData::RCurly),
+            '.' => Ok(TokenData::Dot),
+            ';' => Ok(TokenData::Semicolon),
+            ':' => Ok(TokenData::Colon),
+            ',' => Ok(TokenData::Comma),
             '=' => {
                 if let Some(&'=') = self.it.peek() {
-                    self.it.next();
-                    Ok(Token::EqualEqual)
+                    self.next();
+                    Ok(TokenData::EqualEqual)
                 } else {
-                    Ok(Token::Equal)
+                    Ok(TokenData::Equal)
                 }
-            },
+            }
             '&' => {
                 if let Some(&'&') = self.it.peek() {
-                    self.it.next();
-                    Ok(Token::AmpersandAmpersand)
+                    self.next();
+                    Ok(TokenData::AmpersandAmpersand)
                 } else {
-                    Ok(Token::Ampersand)
+                    Ok(TokenData::Ampersand)
                 }
-            },
+            }
             '|' => {
                 if let Some(&'|') = self.it.peek() {
-                    self.it.next();
-                    Ok(Token::BarBar)
+                    self.next();
+                    Ok(TokenData::BarBar)
                 } else {
-                    Ok(Token::Bar)
+                    Ok(TokenData::Bar)
                 }
-            },
+            }
             _ => Err(format!("Unexpected character: {}", c).to_string()),
         }
     }
 
-    fn next_token(&mut self) -> Result<Option<Token>, String> {
+    fn next_token(&mut self) -> Result<Token, String> {
+        self.cache_loc();
         while let Some(ch) = self.it.peek() {
-            let tkn = match ch {
+            let token_data = match ch {
                 ch if ch.is_whitespace() => {
-                    self.it.next();
+                    self.next();
                     continue;
                 }
-                '0'..='9' => self.tokenize_numeric().unwrap(),
-                'a'..='z' | 'A'..='Z' => self.tokenize_word().unwrap(),
-                '"' => self.tokenize_string().unwrap(),
-                _ => self.tokenize_single().unwrap(),
+                '0'..='9' => self.tokenize_numeric()?,
+                'a'..='z' | 'A'..='Z' => self.tokenize_word()?,
+                '"' => self.tokenize_string()?,
+                _ => self.tokenize_single()?,
             };
-            return Ok(Some(tkn));
+            return Ok(self.create_token(token_data));
         }
-        Ok(None)
+        self.cache_loc();
+        Ok(self.create_token(TokenData::Eof))
     }
 }
 
@@ -216,50 +285,59 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
     loop {
         let token = tokenizer.next_token()?;
-        if let Some(t) = token {
-            tokens.push(t);
-        } else {
+        let data = token.data.clone();
+        tokens.push(token);
+        if data == TokenData::Eof {
             break;
         }
     }
-    tokens.push(Token::Eof);
     Ok(tokens)
+}
+
+fn token_data_map(tokens: Vec<Token>) -> Vec<TokenData> {
+    tokens.iter().map(|x| x.data.clone()).collect()
 }
 
 #[cfg(test)]
 mod tests {
+
     #[test]
     fn lexer_tests() {
-        use crate::lexer::{tokenize, Token};
-        assert_eq!(tokenize("123"), Ok(vec![Token::Integer(123), Token::Eof]));
+        use crate::lexer::{token_data_map, tokenize, TokenData};
         assert_eq!(
-            tokenize("function main: int {}"),
-            Ok(vec![
-                Token::Function,
-                Token::Identifier("main".to_string()),
-                Token::Colon,
-                Token::IntT,
-                Token::LCurly,
-                Token::RCurly,
-                Token::Eof
-            ])
+            token_data_map(tokenize("123").unwrap()),
+            vec![TokenData::Integer(123), TokenData::Eof]
         );
         assert_eq!(
-            tokenize("function main: int {\n    print(\"Hello world!\");\n}"),
-            Ok(vec![
-                Token::Function,
-                Token::Identifier("main".to_string()),
-                Token::Colon,
-                Token::IntT,
-                Token::LCurly,
-                Token::Print,
-                Token::LParen,
-                Token::QuotedString("Hello world!".to_string()),
-                Token::RParen,
-                Token::Semicolon,
-                Token::RCurly,
-                Token::Eof,
-            ])
+            token_data_map(tokenize("function main: int {}").unwrap()),
+            vec![
+                TokenData::Function,
+                TokenData::Identifier("main".to_string()),
+                TokenData::Colon,
+                TokenData::IntT,
+                TokenData::LCurly,
+                TokenData::RCurly,
+                TokenData::Eof
+            ]
+        );
+        assert_eq!(
+            token_data_map(
+                tokenize("function main: int {\n    print(\"Hello world!\");\n}").unwrap()
+            ),
+            vec![
+                TokenData::Function,
+                TokenData::Identifier("main".to_string()),
+                TokenData::Colon,
+                TokenData::IntT,
+                TokenData::LCurly,
+                TokenData::Print,
+                TokenData::LParen,
+                TokenData::QuotedString("Hello world!".to_string()),
+                TokenData::RParen,
+                TokenData::Semicolon,
+                TokenData::RCurly,
+                TokenData::Eof,
+            ]
         );
     }
 }
