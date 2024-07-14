@@ -1,0 +1,5 @@
+function main () : int {
+    let x = 666;
+    let y = x-596;
+    return y+2*5;
+}

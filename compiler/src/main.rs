@@ -20,13 +20,17 @@ struct Cli {
     /// Path of the ScuffScript source file
     input_path: String,
 
-    /// Path of the output program
+    /// Path of the output program/source file
     #[arg(short, long)]
     output: Option<String>,
 
     #[arg(long)]
-    /// Compile to LLVM source file instead of executable
+    /// Compile to LLVM source file
     ll: bool,
+
+    #[arg(short = 'S')]
+    /// Compile to ASM
+    s: bool,
 }
 
 fn check_mlir_components() {
@@ -62,12 +66,7 @@ fn check_mlir_components() {
     }
 }
 
-fn main() {
-    let cli = Cli::parse();
-    let input = fs::read_to_string(cli.input_path).expect("Failed to read input file");
-
-    check_mlir_components();
-
+fn compile(input: String, output: Option<String>, ll: bool, s: bool) -> Option<String> {
     let tokens = tokenize(&input).unwrap();
     let mut parser = SSParser::from(tokens);
     parser.parse().unwrap();
@@ -109,17 +108,49 @@ fn main() {
     let mut llvm_prog = Vec::new();
     stdout.read_to_end(&mut llvm_prog).unwrap();
 
-    if cli.ll {
-        if let Some(output_path) = cli.output {
+    if s && ll {
+        return Some("Both -S and -ll flags are not supported together".into());
+    }
+
+    if ll {
+        if let Some(output_path) = output {
             let mut output_file =
                 fs::File::create(output_path).expect("Failed to create output file");
             output_file
                 .write_all(&llvm_prog)
                 .expect("Failed to write to output file");
+            None
         } else {
-            println!("LLVM IR: {}", String::from_utf8_lossy(&llvm_prog));
+            format!("{}", String::from_utf8_lossy(&llvm_prog)).into()
         }
-    } else if let Some(output_path) = cli.output {
+    } else if s {
+        let mut cmd_builder = Command::new("clang");
+        cmd_builder
+            .arg("-O3")
+            .arg("-x")
+            .arg("ir")
+            .arg("-")
+            .arg("-S")
+            .arg("-o");
+        if let Some(output_path) = output {
+            cmd_builder.arg(output_path);
+        } else {
+            cmd_builder.arg("-");
+        }
+        cmd_builder.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
+
+        let mut cmd = cmd_builder.spawn().expect("Failed to spawn clang");
+
+        let mut stdin = cmd.stdin.take().unwrap();
+        let mut stdout = cmd.stdout.take().unwrap();
+        Write::write_all(&mut stdin, &llvm_prog).expect("Failed to write to clang");
+        stdin.flush().unwrap();
+        drop(stdin);
+
+        let mut asm_prog = vec![];
+        stdout.read_to_end(&mut asm_prog).unwrap();
+        format!("{}", String::from_utf8_lossy(&asm_prog)).into()
+    } else if let Some(output_path) = output {
         let mut cmd = Command::new("clang")
             .arg("-O3")
             .arg("-x")
@@ -130,11 +161,27 @@ fn main() {
             .stdin(std::process::Stdio::piped())
             .spawn()
             .expect("Failed to spawn clang");
+
         let mut stdin = cmd.stdin.take().unwrap();
         Write::write_all(&mut stdin, &llvm_prog).expect("Failed to write to clang");
         stdin.flush().unwrap();
         drop(stdin);
+        None
     } else {
-        println!("Error: missing output path");
+        Some("Error: missing output path for executable".into())
     }
 }
+
+fn main() {
+    let cli = Cli::parse();
+    let input = fs::read_to_string(cli.input_path).expect("Failed to read input file");
+
+    check_mlir_components();
+
+    if let Some(output) = compile(input, cli.output, cli.ll, cli.s) {
+        println!("{}", output);
+    }
+}
+
+#[cfg(test)]
+mod test;

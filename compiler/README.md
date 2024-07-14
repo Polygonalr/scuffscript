@@ -2,6 +2,23 @@
 
 The frontend compiler for ScuffScript, written mainly for educational purposes to practice lexing and parsing via hand-written code.
 
+## Usage
+
+Before using, ensure that `mlir-translate`, `mlir-opt` and `clang` are in your `PATH`. If that is not the case, compile `mlir-translate` and `mlir-opt` from the [`llvm-project`](https://github.com/llvm/llvm-project) repository by following [the instructions here](https://mlir.llvm.org/getting_started/).
+
+```bash
+Usage: scuffscript [OPTIONS] <INPUT_PATH>
+
+Arguments:
+  <INPUT_PATH>  Path of the ScuffScript source file
+
+Options:
+  -o, --output <OUTPUT>  Path of the output program/source file
+      --ll               Compile to LLVM source file
+  -S                     Compile to ASM
+  -h, --help             Print help
+```
+
 ## Internals of ScuffScript's AST
 
 A ScuffScript program is represented with a list of function declarations (`FDecl` in the AST), each comprising of a list of statements.
@@ -13,9 +30,9 @@ A ScuffScript program is represented with a list of function declarations (`FDec
 
 ## Translation to MLIR
 
-- No custom dialect, relies on `arith`, `func`, `llvm` dialects for now. `arith` and `func` will eventually be lowered to the `llvm` dialect in the later parts of the compilation pipeline.
+- No custom dialect, relies on `arith`, `func`, `llvm`, `memref` dialects for now. `arith` and `func` will eventually be lowered to the `llvm` dialect in the later parts of the compilation pipeline.
   - Doing so to understand MLIR more first before delving into developing a custom dialect for ScuffScript.
-- There are plans on integrating other dialects like `memref`, `gpu`, `omp`.
+- There are plans on integrating other dialects like `gpu`, `omp` when the basics of the frontend are ironed out.
 
 ## Some code naming glossary
 - `ast`: Abstract Syntax Tree
