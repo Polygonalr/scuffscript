@@ -27,7 +27,7 @@ impl From<TokenData> for Binop {
             TokenData::Times => Binop::Mul,
             TokenData::Ampersand => Binop::And,
             TokenData::Bar => Binop::Or,
-            _ => panic!("Invalid token to Binop conversion")
+            _ => panic!("Invalid token to Binop conversion"),
         }
     }
 }
@@ -40,8 +40,17 @@ impl ToString for Binop {
             Binop::Mul => "*",
             Binop::And => "&",
             Binop::Or => "|",
-        }.to_owned()
+        }
+        .to_owned()
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum Type {
+    Int,
+    Double,
+    String,
+    Void,
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -73,7 +82,6 @@ impl FDecl {
             statements,
         }
     }
-
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -88,10 +96,9 @@ pub enum Stmt {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum ASTNodeKind {
-    StmtKind(Stmt),
-    ExprKind(Expr),
-    TermKind(Term),
-    Empty,
+    Stmt(Stmt),
+    Expr(Expr),
+    Term(Term),
 }
 
 #[derive(Clone, Debug)]
@@ -121,16 +128,9 @@ impl ASTStore for Vec<ASTNode> {
         }
         let node = &self[idx];
         match &node.kind {
-            ASTNodeKind::StmtKind(stmt) => {
-                self.stmt_to_string(stmt)
-            },
-            ASTNodeKind::ExprKind(expr) => {
-                self.expr_to_string(expr)
-            },
-            ASTNodeKind::TermKind(term) => {
-                self.term_to_string(term)
-            }
-            _ => todo!()
+            ASTNodeKind::Stmt(stmt) => self.stmt_to_string(stmt),
+            ASTNodeKind::Expr(expr) => self.expr_to_string(expr),
+            ASTNodeKind::Term(term) => self.term_to_string(term),
         }
     }
 
@@ -138,35 +138,34 @@ impl ASTStore for Vec<ASTNode> {
         match stmt {
             Stmt::Assn(vid, node_idx) => {
                 format!("{} = {};", vid, self.node_to_string(*node_idx))
-            },
+            }
             Stmt::VDecl(vid, node_idx) => {
                 format!("let {} = {};", vid, self.node_to_string(*node_idx))
-            },
+            }
             Stmt::Ret(node_idx) => {
                 format!("return {};", self.node_to_string(*node_idx))
-            },
+            }
         }
     }
 
     fn expr_to_string(&self, expr: &Expr) -> String {
         match expr {
             Expr::BinopExp(binop, lhs, rhs) => {
-                format!("( {} {} {} )", self.node_to_string(*lhs), binop.to_string(), self.node_to_string(*rhs))
+                format!(
+                    "( {} {} {} )",
+                    self.node_to_string(*lhs),
+                    binop.to_string(),
+                    self.node_to_string(*rhs)
+                )
             }
         }
     }
 
     fn term_to_string(&self, term: &Term) -> String {
         match term {
-            Term::Int(i) => {
-                i.to_string()
-            },
-            Term::Double(d) => {
-                d.to_string()
-            },
-            Term::Var(vid) => {
-                vid.to_string()
-            }
+            Term::Int(i) => i.to_string(),
+            Term::Double(d) => d.to_string(),
+            Term::Var(vid) => vid.to_string(),
         }
     }
 }

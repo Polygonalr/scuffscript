@@ -6,4 +6,6 @@ A TypeScript-like language that compiles to LLVM with the help of MLIR. The main
 
 This monorepo contains two projects:
 - **The ScuffScript compiler** which is written in Rust. It deals with the lexing, parsing and translation of ScuffScript code into its MLIR dialect.
-- **The ScuffScript MLIR dialect** which is written in C++, and deals with all the heavy lifting of defining valid operations for ScuffScript's MLIR dialect and lowering them to LLVM.
+- **The ScuffScript MLIR dialect** which is written in C++, ~~and deals with all the heavy lifting of defining valid operations for ScuffScript's MLIR dialect and lowering them to LLVM~~.
+  - Currently unmaintained and unused as I have no confidence in developing custom dialects.
+

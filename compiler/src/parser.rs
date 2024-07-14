@@ -12,7 +12,7 @@ pub struct ParserError {
 
 impl fmt::Display for ParserError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Parser Error at {} - {}", self.loc.to_string(), self.msg) // TODO add location of error
+        write!(f, "Parser Error at {} - {}", self.loc.to_string(), self.msg)
     }
 }
 
@@ -28,8 +28,8 @@ pub struct Parser {
     /// Iterator of tokens to be consumed by the parser. Peekable so that the grammar is at least LL(1).
     tokens: Peekable<std::vec::IntoIter<Token>>,
     last_consumed_loc: SourceLocation,
-    ast_store: Vec<ASTNode>,
-    func_decls: Vec<FDecl>,
+    pub ast_store: Vec<ASTNode>,
+    pub func_decls: Vec<FDecl>,
 }
 
 impl From<Vec<Token>> for Parser {
@@ -131,14 +131,18 @@ impl Parser {
         }
     }
 
-    fn expect_and_consume(&mut self, expected: TokenData) -> Result<Option<TokenData>, ParserError> {
+    fn expect_and_consume(
+        &mut self,
+        expected: TokenData,
+    ) -> Result<Option<TokenData>, ParserError> {
         self.expect(expected)?;
         Ok(self.consume())
     }
 
     fn new_ast_node(&mut self, data: ASTNodeKind) -> usize {
         let new_idx = self.ast_store.len();
-        self.ast_store.push(ASTNode::new(new_idx, data, self.last_consumed_loc.clone()));
+        self.ast_store
+            .push(ASTNode::new(new_idx, data, self.last_consumed_loc.clone()));
         new_idx
     }
 
@@ -153,6 +157,18 @@ impl Parser {
         }
     }
 
+    pub fn parse(&mut self) -> Result<(), ParserError> {
+        while self.peek_token_data().is_some() {
+            if let Some(token) = self.peek_token_data() {
+                if token == TokenData::Eof {
+                    break;
+                }
+            }
+            self.parse_global()?;
+        }
+        Ok(())
+    }
+
     /* ========= Beginning of recursive descent parsing ========= */
 
     /// Returns nothing on success as this function will decide whether to push the parsed ASTNode to either the
@@ -160,7 +176,7 @@ impl Parser {
     ///
     /// For now, only parse function declarations. Will parse other global declarations like struct definitions in the
     /// future.
-    pub fn parse_global(&mut self) -> Result<(), ParserError> {
+    fn parse_global(&mut self) -> Result<(), ParserError> {
         match self.peek_token_data() {
             Some(TokenData::Function) => {
                 let fdecl = self.parse_fdecl()?;
@@ -266,6 +282,8 @@ impl Parser {
 
         let statements = self.parse_block()?;
 
+        self.expect_and_consume(TokenData::RCurly)?;
+
         Ok(FDecl::new(identifier, params, statements))
     }
 
@@ -314,19 +332,18 @@ impl Parser {
                 };
                 self.expect_and_consume(TokenData::Equal)?;
                 let exp_node_idx = self.parse_exp(0)?;
-                let ast_node_data =
-                    ASTNodeKind::StmtKind(Stmt::VDecl(id.to_string(), exp_node_idx));
+                let ast_node_data = ASTNodeKind::Stmt(Stmt::VDecl(id.to_string(), exp_node_idx));
                 Ok(self.new_ast_node(ast_node_data))
             }
             Some(TokenData::Identifier(id)) => {
                 self.expect_and_consume(TokenData::Equal)?;
                 let exp_node_idx = self.parse_exp(0)?;
-                let ast_node_data = ASTNodeKind::StmtKind(Stmt::Assn(id.to_string(), exp_node_idx));
+                let ast_node_data = ASTNodeKind::Stmt(Stmt::Assn(id.to_string(), exp_node_idx));
                 Ok(self.new_ast_node(ast_node_data))
             }
             Some(TokenData::Return) => {
                 let exp_node_idx = self.parse_exp(0)?;
-                let ast_node_data = ASTNodeKind::StmtKind(Stmt::Ret(exp_node_idx));
+                let ast_node_data = ASTNodeKind::Stmt(Stmt::Ret(exp_node_idx));
                 Ok(self.new_ast_node(ast_node_data))
             }
             Some(token) => Err(self.new_err(format!(
@@ -382,7 +399,7 @@ impl Parser {
             let rhs_node_idx = self.parse_exp(right_op_priority)?;
             let ast_op = Binop::from(op.clone());
             let ast_node_data =
-                ASTNodeKind::ExprKind(Expr::BinopExp(ast_op, lhs_node_idx, rhs_node_idx));
+                ASTNodeKind::Expr(Expr::BinopExp(ast_op, lhs_node_idx, rhs_node_idx));
             lhs_node_idx = self.new_ast_node(ast_node_data);
         }
 
@@ -399,9 +416,9 @@ impl Parser {
         self.expect_term()?;
         let next_token = self.consume().unwrap(); // Should not panic as expect_term is called beforehand.
         let ast_node_data = match next_token {
-            TokenData::Identifier(id) => ASTNodeKind::TermKind(Term::Var(id.to_string())),
-            TokenData::Integer(val) => ASTNodeKind::TermKind(Term::Int(val)),
-            TokenData::Double(val) => ASTNodeKind::TermKind(Term::Double(val)),
+            TokenData::Identifier(id) => ASTNodeKind::Term(Term::Var(id.to_string())),
+            TokenData::Integer(val) => ASTNodeKind::Term(Term::Int(val)),
+            TokenData::Double(val) => ASTNodeKind::Term(Term::Double(val)),
             _ => unreachable!(),
         };
         Ok(self.new_ast_node(ast_node_data))
@@ -416,10 +433,20 @@ mod tests {
         use crate::parser::Parser;
         {
             let tokens =
-                tokenize("function main () : int { let x = (40+2)*3; return x*2+(3-4)*5+6; }").unwrap();
+                tokenize("function main () : int { let x = (40+2)*3; return x*2+(3-4)*5+6; }")
+                    .unwrap();
             let mut parser = Parser::from(tokens);
             parser.parse_global().unwrap();
             assert_eq!(parser.to_string(), "FDecl(main, params=[], statements=[\n  Stmt: let x = ( ( 40 + 2 ) * 3 );\n  Stmt: return ( ( ( x * 2 ) + ( ( 3 - 4 ) * 5 ) ) + 6 );\n])");
+        }
+        {
+            let tokens = tokenize("function main () : int { let x = 3; return x; }").unwrap();
+            let mut parser = Parser::from(tokens);
+            parser.parse_global().unwrap();
+            assert_eq!(
+                parser.to_string(),
+                "FDecl(main, params=[], statements=[\n  Stmt: let x = 3;\n  Stmt: return x;\n])"
+            );
         }
     }
 }
