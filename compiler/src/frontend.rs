@@ -249,6 +249,7 @@ impl Frontend {
                 }
                 OpData::MemrefLoad(operand_id.clone())
             }
+            Term::FuncCall(_, _) => todo!()
         };
 
         let res_id = self.id_gen.gen_id("term");

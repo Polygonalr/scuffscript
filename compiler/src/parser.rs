@@ -409,18 +409,44 @@ impl Parser {
     /// Parse a terminal.
     ///
     /// Grammar
-    /// - terminal -> identifier | integer | double | string | true | false (these definitions are handled by lexer)
+    /// - terminal -> func_call | identifier | integer | double | string | true | false (these definitions are handled by lexer)
     fn parse_term(&mut self) -> Result<NodeIdx, ParserError> {
         /* Side note: checking whether a variable exists in a given context happens in the translation stage.
          * For now just generate the AST even if a variable does not exist in the current scope. */
         self.expect_term()?;
         let next_token = self.consume().unwrap(); // Should not panic as expect_term is called beforehand.
         let ast_node_data = match next_token {
-            TokenData::Identifier(id) => ASTNodeKind::Term(Term::Var(id.to_string())),
+            TokenData::Identifier(id) => {
+                match self.peek_token_data() {
+                    Some(TokenData::LParen) => return self.parse_func_call(id),
+                    Some(_) => ASTNodeKind::Term(Term::Var(id.to_string())),
+                    None => return Err(self.new_err("Expected something after an identifier, but buffer has no more tokens.".to_string())),
+                }
+            },
             TokenData::Integer(val) => ASTNodeKind::Term(Term::Int(val)),
             TokenData::Double(val) => ASTNodeKind::Term(Term::Double(val)),
             _ => unreachable!(),
         };
+        Ok(self.new_ast_node(ast_node_data))
+    }
+
+    fn parse_func_call(&mut self, id: String) -> Result<NodeIdx, ParserError> {
+        self.expect_and_consume(TokenData::LParen)?;
+        let mut args: Vec<NodeIdx> = vec![];
+        while self.peek_token_data() != Some(TokenData::RParen) {
+            let exp_node_idx = self.parse_exp(0)?;
+            args.push(exp_node_idx);
+            match self.peek_token_data() {
+                Some(TokenData::Comma) => {
+                    self.consume();
+                }
+                Some(TokenData::RParen) => (),
+                Some(token_data) => return Err(self.new_err(format!("Expected either ',' or ')', got {:?} instead.", token_data))),
+                None => return Err(self.new_err("Expected either ',' or ')', but buffer has no more tokens.".to_string())),
+            }
+        }
+        self.expect_and_consume(TokenData::RParen)?;
+        let ast_node_data = ASTNodeKind::Term(Term::FuncCall(id, args));
         Ok(self.new_ast_node(ast_node_data))
     }
 }
@@ -428,7 +454,7 @@ impl Parser {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn parser_tests() {
+    fn parser_simple_tests() {
         use crate::lexer::tokenize;
         use crate::parser::Parser;
         {
@@ -437,7 +463,11 @@ mod tests {
                     .unwrap();
             let mut parser = Parser::from(tokens);
             parser.parse_global().unwrap();
-            assert_eq!(parser.to_string(), "FDecl(main, params=[], statements=[\n  Stmt: let x = ( ( 40 + 2 ) * 3 );\n  Stmt: return ( ( ( x * 2 ) + ( ( 3 - 4 ) * 5 ) ) + 6 );\n])");
+            assert_eq!(parser.to_string(), "\
+                FDecl(main, params=[], statements=[\n  \
+                Stmt: let x = ( ( 40 + 2 ) * 3 );\n  \
+                Stmt: return ( ( ( x * 2 ) + ( ( 3 - 4 ) * 5 ) ) + 6 );\n])\
+            ");
         }
         {
             let tokens = tokenize("function main () : int { let x = 3; return x; }").unwrap();
@@ -446,6 +476,30 @@ mod tests {
             assert_eq!(
                 parser.to_string(),
                 "FDecl(main, params=[], statements=[\n  Stmt: let x = 3;\n  Stmt: return x;\n])"
+            );
+        }
+    }
+
+    #[test]
+    fn parser_func_call_tests() {
+        use crate::lexer::tokenize;
+        use crate::parser::Parser;
+        {
+            let tokens = tokenize("function main () : int { return add(3, 4); }").unwrap();
+            let mut parser = Parser::from(tokens);
+            parser.parse_global().unwrap();
+            assert_eq!(
+                parser.to_string(),
+                "FDecl(main, params=[], statements=[\n  Stmt: return add(3, 4);\n])"
+            );
+        }
+        {
+            let tokens = tokenize("function main () : int { return add(5*6+2, 4); }").unwrap();
+            let mut parser = Parser::from(tokens);
+            parser.parse_global().unwrap();
+            assert_eq!(
+                parser.to_string(),
+                "FDecl(main, params=[], statements=[\n  Stmt: return add(( ( 5 * 6 ) + 2 ), 4);\n])"
             );
         }
     }

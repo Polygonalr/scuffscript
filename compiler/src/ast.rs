@@ -58,6 +58,7 @@ pub enum Term {
     Int(i64),
     Double(f64),
     Var(VarId),
+    FuncCall(GlobalId, Vec<NodeIdx>),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -166,6 +167,15 @@ impl ASTStore for Vec<ASTNode> {
             Term::Int(i) => i.to_string(),
             Term::Double(d) => d.to_string(),
             Term::Var(vid) => vid.to_string(),
+            Term::FuncCall(id, args) => {
+                let args_str = args
+                    .iter()
+                    .map(|arg_idx| self.node_to_string(*arg_idx))
+                    .collect::<Vec<String>>()
+                    .join(", ");
+                format!("{}({})", id, args_str)
+           
+            }
         }
     }
 }
