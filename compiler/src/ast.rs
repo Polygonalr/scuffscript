@@ -45,12 +45,25 @@ impl ToString for Binop {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum Type {
     Int,
     Double,
+    Bool,
     String,
     Void,
+}
+
+impl ToString for Type {
+    fn to_string(&self) -> String {
+        match self {
+            Type::Int => "int".to_string(),
+            Type::Double => "double".to_string(),
+            Type::Bool => "bool".to_string(),
+            Type::String => "string".to_string(),
+            Type::Void => "void".to_string(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -70,13 +83,13 @@ pub enum Expr {
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub struct FDecl {
     pub identifier: GlobalId,
-    pub params: Vec<VarId>, // TODO Params should also include types
+    pub params: Vec<(VarId, Type)>, // TODO Params should also include types
     // return_type:, // TODO For now everything is 64 bit integers
     pub statements: Vec<NodeIdx>,
 }
 
 impl FDecl {
-    pub fn new(identifier: GlobalId, params: Vec<VarId>, statements: Vec<NodeIdx>) -> FDecl {
+    pub fn new(identifier: GlobalId, params: Vec<(VarId, Type)>, statements: Vec<NodeIdx>) -> FDecl {
         FDecl {
             identifier,
             params,
@@ -174,7 +187,6 @@ impl ASTStore for Vec<ASTNode> {
                     .collect::<Vec<String>>()
                     .join(", ");
                 format!("{}({})", id, args_str)
-           
             }
         }
     }

@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use crate::ast::Type;
+
 pub type OperandId = Rc<str>;
 pub type FuncId = String;
 
@@ -9,6 +11,18 @@ pub enum MlirType {
     Bool,
     Void,
     Memref(Box<MlirType>),
+}
+
+impl From<&Type> for MlirType {
+    fn from(t: &Type) -> MlirType {
+        match t {
+            Type::Int => MlirType::I64,
+            Type::Double => MlirType::F64,
+            Type::Bool => MlirType::Bool,
+            Type::Void => MlirType::Void,
+            _ => unimplemented!("Strings are special cases!"),
+        }
+    }
 }
 
 impl ToString for MlirType {
@@ -71,9 +85,9 @@ impl Op {
                 format!("memref.store %{}, %{}[] : memref<i64>", val_op, dest_op)
             } // TODO remove i64 hardcode
             FuncCall(func_id, args) => {
-                let args_string = args.clone().join(", ");
+                let args_string = args.iter().map(|s| format!("%{}", s)).collect::<Vec<String>>().join(", ");
                 let mut types_string = "i64, ".repeat(args.len());
-                if types_string.is_empty() {
+                if !types_string.is_empty() {
                     types_string.pop();
                     types_string.pop();
                 }
@@ -104,12 +118,16 @@ impl Func {
         }
     }
 
+    pub fn append_param(&mut self, param: (OperandId, MlirType)) {
+        self.params.push(param);
+    }
+
     pub fn append_ops(&mut self, ops: Vec<Op>) {
         self.operations.extend(ops);
     }
 
     pub fn to_ir(&self) -> String {
-        let mut output = format!("func.func @{}(", self.identifier);
+        let mut output = format!("func.func @{}(\n", self.identifier);
 
         for (i, (param_id, param_type)) in self.params.iter().enumerate() {
             output.push_str(&format!("    %{}: {}", param_id, param_type.to_string()));
@@ -117,7 +135,7 @@ impl Func {
                 output.push_str(",\n");
             }
         }
-        output.push_str(") -> i64 {\n");
+        output.push_str(") -> i64\n{\n"); // TODO For now everything is int
         for op in &self.operations {
             output.push_str(&format!("    {}\n", op.to_ir()));
         }

@@ -1,7 +1,7 @@
 use std::fmt;
 use std::iter::Peekable;
 
-use crate::ast::{ASTNode, ASTNodeKind, ASTStore, Binop, Expr, FDecl, NodeIdx, Stmt, Term, VarId};
+use crate::ast::{ASTNode, ASTNodeKind, ASTStore, Binop, Expr, FDecl, NodeIdx, Stmt, Term, Type, VarId};
 use crate::lexer::{SourceLocation, Token, TokenData};
 
 #[derive(Debug, Clone)]
@@ -54,8 +54,8 @@ impl ToString for Parser {
             let mut curr: Vec<String> = vec![];
             curr.push(format!("FDecl({}, params=[", func_decl.identifier));
             let mut it = func_decl.params.iter().peekable();
-            while let Some(param) = it.next() {
-                curr.push(param.to_owned());
+            while let Some((param_id, param_type)) = it.next() {
+                curr.push(format!("{} : {}", param_id.to_owned(), param_type.to_string()));
                 if it.peek().is_some() {
                     curr.push(", ".to_string());
                 }
@@ -125,6 +125,20 @@ impl Parser {
                     return Err(
                         self.new_err(format!("Expected a terminal, read {:?} instead", token))
                     );
+                }
+                Ok(())
+            }
+        }
+    }
+
+    fn expect_type(&mut self) -> Result<(), ParserError> {
+        match self.peek_token_data() {
+            None => {
+                Err(self.new_err("Expected a type, but buffer has no more tokens.".to_string()))
+            }
+            Some(token) => {
+                if !token.is_type() {
+                    return Err(self.new_err(format!("Expected a type, read {:?} instead", token)));
                 }
                 Ok(())
             }
@@ -225,33 +239,26 @@ impl Parser {
          */
         #[derive(PartialEq)]
         enum ArgParseExpect {
-            Type,          // Expecting a type following a comma
-            Identifier,    // Expecting an identifier following a type
+            Argument, // Expecting an argument declaraction in the form "id : type"
             CommaOrRParen, // Expecting a comma or right paran following an identifier
         }
-        let mut params: Vec<VarId> = vec![];
+        let mut params: Vec<(VarId, Type)> = vec![];
 
         if self.peek_token_data() != Some(TokenData::RParen) {
-            let mut arg_parse_expect = ArgParseExpect::Type;
+            let mut arg_parse_expect = ArgParseExpect::Argument;
             let mut is_closed_properly = false;
             while let Some(token_data) = self.consume() {
                 match (token_data, arg_parse_expect) {
-                    (t, ArgParseExpect::Type) => {
-                        if t.is_type() {
-                            arg_parse_expect = ArgParseExpect::Identifier;
-                        } else {
-                            return Err(self.new_err(format!(
-                                "Expected type in function declaration of {}, got {:?} instead.",
-                                identifier, t
-                            )));
-                        }
-                    }
-                    (TokenData::Identifier(arg_id), ArgParseExpect::Identifier) => {
-                        params.push(arg_id.to_string());
+                    (TokenData::Identifier(arg_id), ArgParseExpect::Argument) => {
+                        params.push((arg_id.to_string(), Type::Int)); // TODO For now everything is int
+                        self.expect_and_consume(TokenData::Colon)?;
+                        self.expect_type()?;
+                        // TODO for now everything is int
+                        self.expect_and_consume(TokenData::IntT)?;
                         arg_parse_expect = ArgParseExpect::CommaOrRParen;
                     }
                     (TokenData::Comma, ArgParseExpect::CommaOrRParen) => {
-                        arg_parse_expect = ArgParseExpect::Type;
+                        arg_parse_expect = ArgParseExpect::Argument;
                     }
                     (TokenData::RParen, ArgParseExpect::CommaOrRParen) => {
                         is_closed_properly = true;
@@ -476,6 +483,21 @@ mod tests {
             assert_eq!(
                 parser.to_string(),
                 "FDecl(main, params=[], statements=[\n  Stmt: let x = 3;\n  Stmt: return x;\n])"
+            );
+        }
+    }
+
+    #[test]
+    fn parser_func_decl_tests() {
+        use crate::lexer::tokenize;
+        use crate::parser::Parser;
+        {
+            let tokens = tokenize("function add (a : int, b : int) : int { return a + b; }").unwrap();
+            let mut parser = Parser::from(tokens);
+            parser.parse_global().unwrap();
+            assert_eq!(
+                parser.to_string(),
+                "FDecl(add, params=[a : int, b : int], statements=[\n  Stmt: return ( a + b );\n])"
             );
         }
     }

@@ -73,6 +73,8 @@ fn compile(input: String, output: Option<String>, ll: bool, s: bool) -> Option<S
     let mut frontend = Frontend::new(parser.ast_store, parser.func_decls);
     let mlir_prog: MlirProg = frontend.compile_to_mlir().unwrap();
 
+    // print!("{}", mlir_prog.to_ir());
+
     // Compile the IR
     let ir_input = mlir_prog.to_ir().into_bytes();
     let mut cmd = Command::new("mlir-opt")

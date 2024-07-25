@@ -81,18 +81,31 @@ impl Frontend {
         let func_decls = Rc::clone(&self.func_decls); // Rc clone here so that we won't borrow *self in the next line.
         let ast_store = Rc::clone(&self.ast_store);
 
+        // compile func_decls
         for ast_func in func_decls.iter() {
             let mut mlir_func = Func::new(ast_func.identifier.clone());
             let curr_depth = 0;
 
-            for param in &ast_func.params {
+            for (param_id, param_type) in &ast_func.params {
+                // params are passed as raw values, we need to store them as local memrefs first
+                let param_raw_op_id = self.id_gen.gen_id(&format!("param_{}", param_id));
+                let memref_op_id = self.id_gen.gen_id(param_id);
+                let mlir_type = MlirType::from(param_type);
+                let alloca_op =
+                    Op::new(Some(memref_op_id.clone()), OpData::MemrefAlloca(mlir_type));
+                self.hoisted_ops.push(alloca_op);
+                let store_op = Op::new(None, OpData::MemrefStore(memref_op_id.clone(), param_raw_op_id.clone()));
+                self.hoisted_ops.push(store_op);
+
                 let metadata = VarMetadata {
-                    var_type: Type::Int,
-                    operand_id: self.id_gen.gen_id(param),
+                    var_type: param_type.clone(),
+                    operand_id: memref_op_id,
                 };
+                mlir_func.append_param((param_raw_op_id, MlirType::from(param_type)));
+
                 self.ctxt
                     .scope
-                    .insert(param.clone(), (metadata, curr_depth)); // TODO Params should also include types
+                    .insert(param_id.clone(), (metadata, curr_depth));
             }
 
             for statement_idx in &ast_func.statements {
@@ -249,7 +262,13 @@ impl Frontend {
                 }
                 OpData::MemrefLoad(operand_id.clone())
             }
-            Term::FuncCall(_, _) => todo!()
+            Term::FuncCall(id, args) => {
+                let mut arg_expr_ops: Vec<OperandId> = vec![];
+                for arg_id in args {
+                    arg_expr_ops.push(self.compile_exp(*arg_id)?);
+                }
+                OpData::FuncCall(id.to_string(), arg_expr_ops)
+            }
         };
 
         let res_id = self.id_gen.gen_id("term");
