@@ -1,8 +1,8 @@
-use std::{iter::Peekable, rc::Rc};
+use std::{iter::Peekable, rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct SourceLocation {
-    pub source_path: Rc<str>,
+    pub source_path: Arc<str>,
     pub line: usize,
     pub col: usize,
 }
@@ -21,10 +21,15 @@ pub enum TokenData {
     Let,
     Return,
     Print,
+    If,
+    Else,
+    True,
+    False,
     // Types
     IntT,
     DoubleT,
     StringT,
+    BoolT,
 
     // Numbers
     Integer(i64),
@@ -48,10 +53,18 @@ pub enum TokenData {
     Semicolon,
     Colon,
     Comma,
+    Excl,
     Equal,
-    EqualEqual,
-    Ampersand,
-    AmpersandAmpersand,
+    EqualEqual, // ==
+    ExclEqual, // !=
+    Ampersand, // &
+    AmpersandAmpersand, // &&
+    LAngle, // <
+    LAngleLAngle, // <<
+    LAngleEqual, // <=
+    RAngle, // >
+    RAngleRAngle, // >>
+    RAngleEqual, // >=
     Bar,
     BarBar,
     Eof,
@@ -100,7 +113,7 @@ pub struct Token {
 struct Tokenizer<'a> {
     it: Peekable<std::str::Chars<'a>>,
     /// Path to the source file of the code
-    source_path: Rc<str>,
+    source_path: Arc<str>,
     next_char_line: usize,
     next_char_col: usize,
     cache_line: usize,
@@ -111,7 +124,7 @@ impl<'a> Tokenizer<'a> {
     fn new(src: &str) -> Tokenizer {
         Tokenizer {
             it: src.chars().peekable(),
-            source_path: Rc::from("test"),
+            source_path: Arc::from("test"),
             next_char_line: 1,
             next_char_col: 1,
             cache_line: 0,
@@ -196,7 +209,12 @@ impl<'a> Tokenizer<'a> {
             "print" => Ok(TokenData::Print),
             "int" => Ok(TokenData::IntT),
             "double" => Ok(TokenData::DoubleT),
+            "bool" => Ok(TokenData::BoolT),
             "string" => Ok(TokenData::StringT),
+            "true" => Ok(TokenData::True),
+            "false" => Ok(TokenData::False),
+            "if" => Ok(TokenData::If),
+            "else" => Ok(TokenData::Else),
             "" => Err("Empty string".to_string()),
             _ => Ok(TokenData::from(word.to_string())),
         }
@@ -254,6 +272,36 @@ impl<'a> Tokenizer<'a> {
                     Ok(TokenData::BarBar)
                 } else {
                     Ok(TokenData::Bar)
+                }
+            }
+            '!' => {
+                if let Some(&'=') = self.it.peek() {
+                    self.next();
+                    Ok(TokenData::ExclEqual)
+                } else {
+                    Ok(TokenData::Excl)
+                }
+            }
+            '<' => {
+                if let Some(&'<') = self.it.peek() {
+                    self.next();
+                    Ok(TokenData::LAngleLAngle)
+                } else if let Some(&'=') = self.it.peek() {
+                    self.next();
+                    Ok(TokenData::LAngleEqual)
+                } else {
+                    Ok(TokenData::LAngle)
+                }
+            }
+            '>' => {
+                if let Some(&'>') = self.it.peek() {
+                    self.next();
+                    Ok(TokenData::RAngleRAngle)
+                } else if let Some(&'=') = self.it.peek() {
+                    self.next();
+                    Ok(TokenData::RAngleEqual)
+                } else {
+                    Ok(TokenData::RAngle)
                 }
             }
             _ => Err(format!("Unexpected character: {}", c).to_string()),
@@ -335,6 +383,37 @@ mod tests {
                 TokenData::QuotedString("Hello world!".to_string()),
                 TokenData::RParen,
                 TokenData::Semicolon,
+                TokenData::RCurly,
+                TokenData::Eof,
+            ]
+        );
+        assert_eq!(
+            token_data_map(
+                tokenize("function main: int {\nif (1 == 0) {\nreturn 0;\n} else {\nreturn 1;\n}\n}").unwrap()
+            ),
+            vec![
+                TokenData::Function,
+                TokenData::Identifier("main".to_string()),
+                TokenData::Colon,
+                TokenData::IntT,
+                TokenData::LCurly,
+                TokenData::If,
+                TokenData::LParen,
+                TokenData::Integer(1),
+                TokenData::EqualEqual,
+                TokenData::Integer(0),
+                TokenData::RParen,
+                TokenData::LCurly,
+                TokenData::Return,
+                TokenData::Integer(0),
+                TokenData::Semicolon,
+                TokenData::RCurly,
+                TokenData::Else,
+                TokenData::LCurly,
+                TokenData::Return,
+                TokenData::Integer(1),
+                TokenData::Semicolon,
+                TokenData::RCurly,
                 TokenData::RCurly,
                 TokenData::Eof,
             ]

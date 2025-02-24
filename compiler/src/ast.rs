@@ -9,12 +9,12 @@ pub enum Binop {
     Add,
     Sub,
     Mul,
-    // Eq, // This and below to be implemented when comparators and booleans are done
-    // Neq,
-    // Lt,
-    // Lte,
-    // Gt,
-    // Gte,
+    Eq,
+    Neq,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
     And,
     Or,
 }
@@ -27,6 +27,12 @@ impl From<TokenData> for Binop {
             TokenData::Times => Binop::Mul,
             TokenData::Ampersand => Binop::And,
             TokenData::Bar => Binop::Or,
+            TokenData::EqualEqual => Binop::Eq,
+            TokenData::ExclEqual => Binop::Neq,
+            TokenData::LAngle => Binop::Lt,
+            TokenData::LAngleEqual => Binop::Lte,
+            TokenData::RAngle => Binop::Gt,
+            TokenData::RAngleEqual => Binop::Gte,
             _ => panic!("Invalid token to Binop conversion"),
         }
     }
@@ -40,6 +46,12 @@ impl ToString for Binop {
             Binop::Mul => "*",
             Binop::And => "&",
             Binop::Or => "|",
+            Binop::Eq => "==",
+            Binop::Neq => "!=",
+            Binop::Lt => "<",
+            Binop::Lte => "<=",
+            Binop::Gt => ">",
+            Binop::Gte => ">=",
         }
         .to_owned()
     }
@@ -106,6 +118,8 @@ pub enum Stmt {
     VDecl(VarId, NodeIdx),
     // Expr
     Ret(NodeIdx),
+    // Condition-IfBlock-ElseBlock
+    IfElse(NodeIdx, Vec<NodeIdx>, Option<Vec<NodeIdx>>),
 }
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -158,6 +172,30 @@ impl ASTStore for Vec<ASTNode> {
             }
             Stmt::Ret(node_idx) => {
                 format!("return {};", self.node_to_string(*node_idx))
+            }
+            Stmt::IfElse(cond_idx, if_block, else_block) => {
+                let if_block_str = if_block
+                    .iter()
+                    .map(|idx| self.node_to_string(*idx))
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                let else_block_str = match else_block {
+                    Some(else_block) => {
+                        let else_block_str = else_block
+                            .iter()
+                            .map(|idx| self.node_to_string(*idx))
+                            .collect::<Vec<String>>()
+                            .join("\n");
+                        format!("else {{ {} }}", else_block_str)
+                    }
+                    None => "".to_string(),
+                };
+                format!(
+                    "if ( {} ) {{ {} }} {}",
+                    self.node_to_string(*cond_idx),
+                    if_block_str,
+                    else_block_str
+                )
             }
         }
     }

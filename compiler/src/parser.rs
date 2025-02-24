@@ -1,10 +1,12 @@
 use std::fmt;
 use std::iter::Peekable;
+use anyhow::{Result, anyhow};
+use thiserror::Error;
 
 use crate::ast::{ASTNode, ASTNodeKind, ASTStore, Binop, Expr, FDecl, NodeIdx, Stmt, Term, Type, VarId};
 use crate::lexer::{SourceLocation, Token, TokenData};
 
-#[derive(Debug, Clone)]
+#[derive(Error, Debug, Clone)]
 pub struct ParserError {
     loc: SourceLocation,
     msg: String,
@@ -76,11 +78,11 @@ impl ToString for Parser {
 
 impl Parser {
     /* ========= Utils ========= */
-    fn new_err(&self, msg: String) -> ParserError {
-        ParserError {
+    fn new_err(&self, msg: String) -> anyhow::Error {
+        anyhow::Error::new(ParserError {
             msg,
             loc: self.last_consumed_loc.clone(),
-        }
+        })
     }
 
     fn consume(&mut self) -> Option<TokenData> {
@@ -97,25 +99,25 @@ impl Parser {
         self.tokens.peek().map(|token| token.data.clone())
     }
 
-    fn expect(&mut self, expected: TokenData) -> Result<(), ParserError> {
+    fn expect(&mut self, expected: TokenData) -> Result<()> {
         match self.peek_token_data() {
-            None => Err(self.new_err(format!(
+            None => Err(anyhow!(self.new_err(format!(
                 "Expected token {:?}, but buffer has no more tokens.",
                 expected
-            ))),
+            )))),
             Some(token) => {
                 if token != expected {
-                    return Err(self.new_err(format!(
+                    return Err(anyhow!(self.new_err(format!(
                         "Expected token {:?}, read {:?} instead",
                         expected, token
-                    )));
+                    ))));
                 }
                 Ok(())
             }
         }
     }
 
-    fn expect_term(&mut self) -> Result<(), ParserError> {
+    fn expect_term(&mut self) -> Result<()> {
         match self.peek_token_data() {
             None => {
                 Err(self.new_err("Expected a terminal, but buffer has no more tokens.".to_string()))
@@ -131,7 +133,7 @@ impl Parser {
         }
     }
 
-    fn expect_type(&mut self) -> Result<(), ParserError> {
+    fn expect_type(&mut self) -> Result<()> {
         match self.peek_token_data() {
             None => {
                 Err(self.new_err("Expected a type, but buffer has no more tokens.".to_string()))
@@ -148,7 +150,7 @@ impl Parser {
     fn expect_and_consume(
         &mut self,
         expected: TokenData,
-    ) -> Result<Option<TokenData>, ParserError> {
+    ) -> Result<Option<TokenData>> {
         self.expect(expected)?;
         Ok(self.consume())
     }
@@ -171,7 +173,7 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<(), ParserError> {
+    pub fn parse(&mut self) -> Result<()> {
         while self.peek_token_data().is_some() {
             if let Some(token) = self.peek_token_data() {
                 if token == TokenData::Eof {
@@ -190,7 +192,7 @@ impl Parser {
     ///
     /// For now, only parse function declarations. Will parse other global declarations like struct definitions in the
     /// future.
-    fn parse_global(&mut self) -> Result<(), ParserError> {
+    fn parse_global(&mut self) -> Result<()> {
         match self.peek_token_data() {
             Some(TokenData::Function) => {
                 let fdecl = self.parse_fdecl()?;
@@ -211,13 +213,13 @@ impl Parser {
     /// - fdecl -> FUNCTION identifier params COLON type block
     /// - params -> LPAREN type identifier (COMMA type identifier)* RPAREN
     /// - type -> INTT | DOUBLET | CHART | STRINGT | BOOLT
-    fn parse_fdecl(&mut self) -> Result<FDecl, ParserError> {
+    fn parse_fdecl(&mut self) -> Result<FDecl> {
         self.expect_and_consume(TokenData::Function)?;
 
         let identifier = match self.consume() {
             None => return Err(self.new_err(
                 "Expected an identifier in function declaration, but buffer has no more tokens."
-                    .to_string(),
+                    .to_string(),  
             )),
             Some(TokenData::Identifier(id)) => id,
             Some(t) => {
@@ -289,16 +291,14 @@ impl Parser {
 
         let statements = self.parse_block()?;
 
-        self.expect_and_consume(TokenData::RCurly)?;
-
         Ok(FDecl::new(identifier, params, statements))
     }
 
-    /// Parse a block of statements.
+    /// Parse a block of statements. Blocks are represented as a vector of nodes.
     ///
     /// Grammar:
     /// - block -> LCURLY { statement_1 ... statement_n } RCURLY
-    fn parse_block(&mut self) -> Result<Vec<NodeIdx>, ParserError> {
+    fn parse_block(&mut self) -> Result<Vec<NodeIdx>> {
         self.expect_and_consume(TokenData::LCurly)?;
         let mut statements: Vec<NodeIdx> = vec![];
         while self.peek_token_data() != Some(TokenData::RCurly) {
@@ -310,6 +310,7 @@ impl Parser {
             let stmt_node_idx = self.parse_stmt()?;
             statements.push(stmt_node_idx);
         }
+        self.expect_and_consume(TokenData::RCurly)?;
         Ok(statements)
     }
 
@@ -320,7 +321,8 @@ impl Parser {
     /// - variable_declaration -> LET identifier = expression
     /// - assignment -> identifier = expression
     /// - return_stmt -> RETURN expression
-    fn parse_stmt(&mut self) -> Result<NodeIdx, ParserError> {
+    fn parse_stmt(&mut self) -> Result<NodeIdx> {
+        let mut expect_semicolon = true;
         let new_idx = match self.consume() {
             Some(TokenData::Let) => {
                 let id = match self.consume() {
@@ -353,6 +355,10 @@ impl Parser {
                 let ast_node_data = ASTNodeKind::Stmt(Stmt::Ret(exp_node_idx));
                 Ok(self.new_ast_node(ast_node_data))
             }
+            Some(TokenData::If) => {
+                expect_semicolon = false;
+                Ok(self.parse_if()?)
+            }
             Some(token) => Err(self.new_err(format!(
                 "Trying to parse start of statement, got {:?}",
                 token
@@ -361,7 +367,9 @@ impl Parser {
                 "Trying to parse start of statement, but buffer has no more tokens.".to_string(),
             )),
         };
-        self.expect_and_consume(TokenData::Semicolon)?;
+        if expect_semicolon {
+            self.expect_and_consume(TokenData::Semicolon)?;
+        }
         new_idx
     }
 
@@ -373,7 +381,7 @@ impl Parser {
     /// Grammar
     /// - expression -> terminal | terminal binop expression
     /// - binop (<PRECEDENCE>) -> BAR <1> | CARET <2> | AMPERSAND <3> | PLUS <4> | MINUS <4> | TIMES <5>
-    fn parse_exp(&mut self, min_priority: u8) -> Result<NodeIdx, ParserError> {
+    fn parse_exp(&mut self, min_priority: u8) -> Result<NodeIdx> {
         let mut lhs_node_idx = match self.peek_token_data() {
             Some(TokenData::LParen) => {
                 self.consume();
@@ -417,7 +425,7 @@ impl Parser {
     ///
     /// Grammar
     /// - terminal -> func_call | identifier | integer | double | string | true | false (these definitions are handled by lexer)
-    fn parse_term(&mut self) -> Result<NodeIdx, ParserError> {
+    fn parse_term(&mut self) -> Result<NodeIdx> {
         /* Side note: checking whether a variable exists in a given context happens in the translation stage.
          * For now just generate the AST even if a variable does not exist in the current scope. */
         self.expect_term()?;
@@ -437,7 +445,7 @@ impl Parser {
         Ok(self.new_ast_node(ast_node_data))
     }
 
-    fn parse_func_call(&mut self, id: String) -> Result<NodeIdx, ParserError> {
+    fn parse_func_call(&mut self, id: String) -> Result<NodeIdx> {
         self.expect_and_consume(TokenData::LParen)?;
         let mut args: Vec<NodeIdx> = vec![];
         while self.peek_token_data() != Some(TokenData::RParen) {
@@ -454,6 +462,26 @@ impl Parser {
         }
         self.expect_and_consume(TokenData::RParen)?;
         let ast_node_data = ASTNodeKind::Term(Term::FuncCall(id, args));
+        Ok(self.new_ast_node(ast_node_data))
+    }
+
+    /// Parse an if-else block
+    /// 
+    /// Grammar
+    /// - if_block -> IF LPAREN expression RPAREN block (ELSE block)?
+    fn parse_if(&mut self) -> Result<NodeIdx> {
+        self.expect_and_consume(TokenData::LParen)?;
+        let condition = self.parse_exp(0)?;
+        self.expect_and_consume(TokenData::RParen)?;
+        let if_block = self.parse_block()?;
+        let else_block = match self.peek_token_data() {
+            Some(TokenData::Else) => {
+                self.consume();
+                Some(self.parse_block()?)
+            },
+            _ => None,
+        };
+        let ast_node_data = ASTNodeKind::Stmt(Stmt::IfElse(condition, if_block, else_block));
         Ok(self.new_ast_node(ast_node_data))
     }
 }
@@ -524,5 +552,30 @@ mod tests {
                 "FDecl(main, params=[], statements=[\n  Stmt: return add(( ( 5 * 6 ) + 2 ), 4);\n])"
             );
         }
+    }
+
+    #[test]
+    fn parser_if_else_test() {
+        use crate::lexer::tokenize;
+        use crate::parser::Parser;
+        {
+            let tokens = tokenize("function main () : int { if (1) { return 1; } else { return 2; } }").unwrap();
+            let mut parser = Parser::from(tokens);
+            parser.parse_global().unwrap();
+            assert_eq!(
+                parser.to_string(),
+                "FDecl(main, params=[], statements=[\n  Stmt: if ( 1 ) { return 1; } else { return 2; }\n])"
+            );
+        }
+        {
+            let tokens = tokenize("function main () : int { if (1) { return 1; } }").unwrap();
+            let mut parser = Parser::from(tokens);
+            parser.parse_global().unwrap();
+            assert_eq!(
+                parser.to_string(),
+                "FDecl(main, params=[], statements=[\n  Stmt: if ( 1 ) { return 1; } \n])"
+            );
+        }
+    
     }
 }

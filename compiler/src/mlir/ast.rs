@@ -38,6 +38,15 @@ impl ToString for MlirType {
     }
 }
 
+pub enum CmpPredicate {
+    Equal = 0,
+    NotEqual = 1,
+    LessThan = 2,
+    LessThanOrEqual = 3,
+    GreaterThan = 4,
+    GreatherThanOrEqual = 5,
+}
+
 pub enum OpData {
     ArithI64Constant(i64),
     ArithAddI64(OperandId, OperandId),
@@ -45,6 +54,12 @@ pub enum OpData {
     ArithMulI64(OperandId, OperandId),
     ArithAndI64(OperandId, OperandId),
     ArithOrI64(OperandId, OperandId),
+    CmpEqI64(OperandId, OperandId),
+    CmpNeqI64(OperandId, OperandId),
+    CmpLtI64(OperandId, OperandId),
+    CmpLteI64(OperandId, OperandId),
+    CmpGtI64(OperandId, OperandId),
+    CmpGteI64(OperandId, OperandId),
     MemrefAlloca(MlirType),
     MemrefLoad(OperandId),
     MemrefStore(OperandId, OperandId), // dest, src
@@ -77,6 +92,12 @@ impl Op {
             ArithMulI64(op1, op2) => format!("arith.muli %{}, %{} : i64", op1, op2),
             ArithAndI64(op1, op2) => format!("arith.andi %{}, %{} : i64", op1, op2),
             ArithOrI64(op1, op2) => format!("arith.ori %{}, %{} : i64", op1, op2),
+            CmpEqI64(op1, op2) => format!("arith.cmpi eq %{}, %{} : i64", op1, op2),
+            CmpNeqI64(op1, op2) => format!("arith.cmpi ne %{}, %{} : i64", op1, op2),
+            CmpLtI64(op1, op2) => format!("arith.cmpi slt %{}, %{} : i64", op1, op2),
+            CmpLteI64(op1, op2) => format!("arith.cmpi sle %{}, %{} : i64", op1, op2),
+            CmpGtI64(op1, op2) => format!("arith.cmpi sgt %{}, %{} : i64", op1, op2),
+            CmpGteI64(op1, op2) => format!("arith.cmpi sge %{}, %{} : i64", op1, op2),
             MemrefAlloca(mlir_type) => {
                 format!("memref.alloca() : memref<{}>", mlir_type.to_string())
             }

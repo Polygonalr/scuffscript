@@ -134,6 +134,7 @@ impl Frontend {
             Stmt::Assn(var_id, node_idx) => self.compile_assn(var_id, *node_idx),
             Stmt::VDecl(var_id, node_idx) => self.compile_vdecl(var_id, *node_idx),
             Stmt::Ret(node_idx) => self.compile_ret(*node_idx),
+            Stmt::IfElse(cond_expr_idx, if_block, else_block) => self.compile_ifelse(*cond_expr_idx, if_block, else_block),
         }
     }
 
@@ -194,6 +195,10 @@ impl Frontend {
         Ok(())
     }
 
+    fn compile_ifelse(&mut self, cond_expr_idx: usize, if_block: &Vec<usize>, else_block: &Option<Vec<usize>>) -> Result<(), FrontendError> {
+        todo!()
+    }
+
     fn compile_exp(&mut self, node_idx: usize) -> Result<OperandId, FrontendError> {
         let ast_store = self.ast_store.clone();
 
@@ -212,7 +217,7 @@ impl Frontend {
                     (Ok(lhs_op), Ok(rhs_op)) => (lhs_op, rhs_op),
                     (Err(err), _) => return Err(err),
                     (_, Err(err)) => return Err(err),
-                };
+                }; 
 
                 match binop {
                     crate::ast::Binop::Add => OpData::ArithAddI64(lhs_op, rhs_op),
@@ -220,6 +225,12 @@ impl Frontend {
                     crate::ast::Binop::Mul => OpData::ArithMulI64(lhs_op, rhs_op),
                     crate::ast::Binop::And => OpData::ArithAndI64(lhs_op, rhs_op),
                     crate::ast::Binop::Or => OpData::ArithOrI64(lhs_op, rhs_op),
+                    crate::ast::Binop::Eq => OpData::CmpEqI64(lhs_op, rhs_op), // TODO also support boolean compares
+                    crate::ast::Binop::Neq => OpData::CmpNeqI64(lhs_op, rhs_op), // TODO also support boolean compares
+                    crate::ast::Binop::Lt => OpData::CmpLtI64(lhs_op, rhs_op),
+                    crate::ast::Binop::Lte => OpData::CmpLteI64(lhs_op, rhs_op),
+                    crate::ast::Binop::Gt => OpData::CmpGtI64(lhs_op, rhs_op),
+                    crate::ast::Binop::Gte => OpData::CmpGteI64(lhs_op, rhs_op),
                 }
             }
         };
@@ -236,7 +247,7 @@ impl Frontend {
 
         let term: &Term = match &ast_store[node_idx].kind {
             ASTNodeKind::Term(term) => term,
-            node => panic!("Expected terminal in  compile_term, got {:?} instead", node),
+            node => panic!("Expected terminal in compile_term, got {:?} instead", node),
         };
 
         let op_data: OpData = match term {
