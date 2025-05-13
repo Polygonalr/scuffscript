@@ -3,6 +3,7 @@ use std::rc::Rc;
 use crate::ast::Type;
 
 pub type OperandId = Rc<str>;
+pub type BlockId = Rc<str>;
 pub type FuncId = String;
 
 pub enum MlirType {
@@ -65,6 +66,15 @@ pub enum OpData {
     MemrefStore(OperandId, OperandId), // dest, src
     FuncCall(FuncId, Vec<OperandId>),  // func to call, operands to pass as args
     FuncReturn(OperandId),
+    CfBranch(BlockId),
+    CfCondBranch(OperandId, BlockId, BlockId),
+
+    BlockTag(BlockId),
+}
+
+pub enum IrLine {
+    Block(BlockId),
+    Op(Op),
 }
 
 pub struct Op {
@@ -92,12 +102,12 @@ impl Op {
             ArithMulI64(op1, op2) => format!("arith.muli %{}, %{} : i64", op1, op2),
             ArithAndI64(op1, op2) => format!("arith.andi %{}, %{} : i64", op1, op2),
             ArithOrI64(op1, op2) => format!("arith.ori %{}, %{} : i64", op1, op2),
-            CmpEqI64(op1, op2) => format!("arith.cmpi eq %{}, %{} : i64", op1, op2),
-            CmpNeqI64(op1, op2) => format!("arith.cmpi ne %{}, %{} : i64", op1, op2),
-            CmpLtI64(op1, op2) => format!("arith.cmpi slt %{}, %{} : i64", op1, op2),
-            CmpLteI64(op1, op2) => format!("arith.cmpi sle %{}, %{} : i64", op1, op2),
-            CmpGtI64(op1, op2) => format!("arith.cmpi sgt %{}, %{} : i64", op1, op2),
-            CmpGteI64(op1, op2) => format!("arith.cmpi sge %{}, %{} : i64", op1, op2),
+            CmpEqI64(op1, op2) => format!("arith.cmpi eq, %{}, %{} : i64", op1, op2),
+            CmpNeqI64(op1, op2) => format!("arith.cmpi ne, %{}, %{} : i64", op1, op2),
+            CmpLtI64(op1, op2) => format!("arith.cmpi slt, %{}, %{} : i64", op1, op2),
+            CmpLteI64(op1, op2) => format!("arith.cmpi sle, %{}, %{} : i64", op1, op2),
+            CmpGtI64(op1, op2) => format!("arith.cmpi sgt, %{}, %{} : i64", op1, op2),
+            CmpGteI64(op1, op2) => format!("arith.cmpi sge, %{}, %{} : i64", op1, op2),
             MemrefAlloca(mlir_type) => {
                 format!("memref.alloca() : memref<{}>", mlir_type.to_string())
             }
@@ -106,7 +116,11 @@ impl Op {
                 format!("memref.store %{}, %{}[] : memref<i64>", val_op, dest_op)
             } // TODO remove i64 hardcode
             FuncCall(func_id, args) => {
-                let args_string = args.iter().map(|s| format!("%{}", s)).collect::<Vec<String>>().join(", ");
+                let args_string = args
+                    .iter()
+                    .map(|s| format!("%{}", s))
+                    .collect::<Vec<String>>()
+                    .join(", ");
                 let mut types_string = "i64, ".repeat(args.len());
                 if !types_string.is_empty() {
                     types_string.pop();
@@ -118,9 +132,31 @@ impl Op {
                 )
             } // TODO remove i64 hardcode
             FuncReturn(op) => format!("func.return %{} : i64", op), // TODO remove i64 hardcode
-        });
+            CfBranch(block_id) => format!("cf.br ^{}", block_id),
+            CfCondBranch(bool_op, block_true, block_false) => format!(
+                "cf.cond_br %{}, ^{}, ^{}",
+                bool_op, block_true, block_false
+            ),
 
+            BlockTag(block_id) => format!("^{}:", block_id)
+        });
         res
+    }
+
+    pub fn is_return(&self) -> bool {
+        use crate::mlir::ast::OpData::*;
+        match &self.data {
+            FuncReturn(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_block_tag(&self) -> bool {
+        use crate::mlir::ast::OpData::*;
+        match &self.data {
+            BlockTag(_) => true,
+            _ => false,
+        }
     }
 }
 

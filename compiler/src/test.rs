@@ -23,3 +23,13 @@ fn simple() {
 fn func_call() {
     test_boilerplate("func_call".to_string());
 }
+
+#[test]
+fn if_else_1() {
+    test_boilerplate("if_else_1".to_string());
+}
+
+#[test]
+fn if_else_2() {
+    test_boilerplate("if_else_2".to_string());
+}

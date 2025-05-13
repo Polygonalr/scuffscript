@@ -70,10 +70,11 @@ fn compile(input: String, output: Option<String>, ll: bool, s: bool) -> Option<S
     let tokens = tokenize(&input).unwrap();
     let mut parser = SSParser::from(tokens);
     parser.parse().unwrap();
+    // println!("{}", parser.to_string());
     let mut frontend = Frontend::new(parser.ast_store, parser.func_decls);
     let mlir_prog: MlirProg = frontend.compile_to_mlir().unwrap();
 
-    // print!("{}", mlir_prog.to_ir());
+    print!("{}", mlir_prog.to_ir());
 
     // Compile the IR
     let ir_input = mlir_prog.to_ir().into_bytes();
@@ -139,7 +140,9 @@ fn compile(input: String, output: Option<String>, ll: bool, s: bool) -> Option<S
         } else {
             cmd_builder.arg("-");
         }
-        cmd_builder.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
+        cmd_builder
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped());
 
         let mut cmd = cmd_builder.spawn().expect("Failed to spawn clang");
 

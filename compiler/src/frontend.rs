@@ -94,7 +94,10 @@ impl Frontend {
                 let alloca_op =
                     Op::new(Some(memref_op_id.clone()), OpData::MemrefAlloca(mlir_type));
                 self.hoisted_ops.push(alloca_op);
-                let store_op = Op::new(None, OpData::MemrefStore(memref_op_id.clone(), param_raw_op_id.clone()));
+                let store_op = Op::new(
+                    None,
+                    OpData::MemrefStore(memref_op_id.clone(), param_raw_op_id.clone()),
+                );
                 self.hoisted_ops.push(store_op);
 
                 let metadata = VarMetadata {
@@ -113,6 +116,14 @@ impl Frontend {
                     ASTNodeKind::Stmt(stmt) => self.compile_statement(stmt),
                     kind => panic!("Expected statement AST node but got {:?} instead.", kind),
                 }?;
+            }
+
+            let last_stmt_is_block_tag = match self.ops.last() {
+                Some(op) => op.is_block_tag(),
+                _ => false,
+            };
+            if last_stmt_is_block_tag {
+                self.ops.pop();
             }
 
             // Consume and reset hoisted_ops and ops
@@ -134,7 +145,9 @@ impl Frontend {
             Stmt::Assn(var_id, node_idx) => self.compile_assn(var_id, *node_idx),
             Stmt::VDecl(var_id, node_idx) => self.compile_vdecl(var_id, *node_idx),
             Stmt::Ret(node_idx) => self.compile_ret(*node_idx),
-            Stmt::IfElse(cond_expr_idx, if_block, else_block) => self.compile_ifelse(*cond_expr_idx, if_block, else_block),
+            Stmt::IfElse(cond_expr_idx, if_block, else_block) => {
+                self.compile_ifelse(*cond_expr_idx, if_block, else_block)
+            }
         }
     }
 
@@ -185,18 +198,95 @@ impl Frontend {
     }
 
     fn compile_ret(&mut self, node_idx: usize) -> Result<(), FrontendError> {
-        let ret_op_id = match self.compile_exp(node_idx) {
-            Err(e) => return Err(e),
-            Ok(op_id) => op_id,
-        };
+        let ret_op_id = self.compile_exp(node_idx)?;
         let op_data = OpData::FuncReturn(ret_op_id);
         self.ops.push(Op::new(None, op_data));
 
         Ok(())
     }
 
-    fn compile_ifelse(&mut self, cond_expr_idx: usize, if_block: &Vec<usize>, else_block: &Option<Vec<usize>>) -> Result<(), FrontendError> {
-        todo!()
+    fn compile_ifelse(
+        &mut self,
+        cond_expr_idx: usize,
+        if_block: &Vec<usize>,
+        else_block: &Option<Vec<usize>>,
+    ) -> Result<(), FrontendError> {
+        let ast_store = Rc::clone(&self.ast_store);
+
+        let condition_op_id = self.compile_exp(cond_expr_idx)?;
+
+        let if_block_id = self.id_gen.gen_id("if_block");
+        let after_block_id = self.id_gen.gen_id("if_cont_block");
+        let mut else_block_id: crate::mlir::ast::BlockId = Rc::from("err!!!");
+
+        let branch_op = match else_block {
+            None => Op::new(
+                None,
+                OpData::CfCondBranch(condition_op_id, if_block_id.clone(), after_block_id.clone()),
+            ),
+            Some(_) => {
+                else_block_id = self.id_gen.gen_id("else_block");
+                Op::new(
+                    None,
+                    OpData::CfCondBranch(
+                        condition_op_id,
+                        if_block_id.clone(),
+                        else_block_id.clone(),
+                    ),
+                )
+            }
+        };
+        self.ops.push(branch_op);
+
+        self.ops.push(Op::new(None, OpData::BlockTag(if_block_id)));
+
+        // compile if_block
+        for statement_idx in if_block {
+            match &ast_store[*statement_idx].kind {
+                ASTNodeKind::Stmt(stmt) => self.compile_statement(stmt),
+                kind => panic!("Expected statement AST node but got {:?} instead.", kind),
+            }?;
+        }
+        // don't branch to after_block_id if last statement is return
+        let last_stmt_is_return = match self.ops.last() {
+            Some(op) => op.is_return(),
+            _ => false,
+        };
+
+        if !last_stmt_is_return {
+            self.ops
+                .push(Op::new(None, OpData::CfBranch(after_block_id.clone())));
+        }
+
+        // compile else_block
+        match else_block {
+            None => (),
+            Some(statement_idx_vec) => {
+                self.ops
+                    .push(Op::new(None, OpData::BlockTag(else_block_id)));
+                for statement_idx in statement_idx_vec {
+                    match &ast_store[*statement_idx].kind {
+                        ASTNodeKind::Stmt(stmt) => self.compile_statement(stmt),
+                        kind => panic!("Expected statement AST node but got {:?} instead.", kind),
+                    }?;
+                }
+
+                // don't branch to after_block_id if last statement is return
+                let last_stmt_is_return = match self.ops.last() {
+                    Some(op) => op.is_return(),
+                    _ => false,
+                };
+
+                if !last_stmt_is_return {
+                    self.ops
+                        .push(Op::new(None, OpData::CfBranch(after_block_id.clone())));
+                }
+            }
+        }
+
+        self.ops
+            .push(Op::new(None, OpData::BlockTag(after_block_id)));
+        Ok(())
     }
 
     fn compile_exp(&mut self, node_idx: usize) -> Result<OperandId, FrontendError> {
@@ -217,7 +307,7 @@ impl Frontend {
                     (Ok(lhs_op), Ok(rhs_op)) => (lhs_op, rhs_op),
                     (Err(err), _) => return Err(err),
                     (_, Err(err)) => return Err(err),
-                }; 
+                };
 
                 match binop {
                     crate::ast::Binop::Add => OpData::ArithAddI64(lhs_op, rhs_op),
@@ -225,8 +315,8 @@ impl Frontend {
                     crate::ast::Binop::Mul => OpData::ArithMulI64(lhs_op, rhs_op),
                     crate::ast::Binop::And => OpData::ArithAndI64(lhs_op, rhs_op),
                     crate::ast::Binop::Or => OpData::ArithOrI64(lhs_op, rhs_op),
-                    crate::ast::Binop::Eq => OpData::CmpEqI64(lhs_op, rhs_op), // TODO also support boolean compares
-                    crate::ast::Binop::Neq => OpData::CmpNeqI64(lhs_op, rhs_op), // TODO also support boolean compares
+                    crate::ast::Binop::Eq => OpData::CmpEqI64(lhs_op, rhs_op),
+                    crate::ast::Binop::Neq => OpData::CmpNeqI64(lhs_op, rhs_op),
                     crate::ast::Binop::Lt => OpData::CmpLtI64(lhs_op, rhs_op),
                     crate::ast::Binop::Lte => OpData::CmpLteI64(lhs_op, rhs_op),
                     crate::ast::Binop::Gt => OpData::CmpGtI64(lhs_op, rhs_op),
